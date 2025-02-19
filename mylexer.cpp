@@ -5,6 +5,7 @@
 #include <stack>
 #include <string>
 #include <vector>
+#include <memory> // For smart pointers
 using namespace std;
 
 // Token types
@@ -209,13 +210,13 @@ string InfixToPostfix(const string &infix) {
 // NFA State
 struct State {
     int id;
-    vector<pair<char, State*>> transitions; // transitions are labeled with characters
+    vector<pair<char, shared_ptr<State>>> transitions; // transitions are labeled with characters
 };
 
 // NFA Structure
 struct NFA {
-    State* start;
-    State* accept;
+    shared_ptr<State> start;
+    shared_ptr<State> accept;
 };
 
 // Thompson's Construction: Create NFA from postfix regex
@@ -225,8 +226,8 @@ NFA PostfixToNFA(const string &postfix) {
 
     for (char c : postfix) {
         if (IsOperand(c)) {
-            State* start = new State{stateId++};
-            State* accept = new State{stateId++};
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
             start->transitions.push_back({c, accept});
             nfaStack.push({start, accept});
         } else if (c == '.') {
@@ -237,8 +238,8 @@ NFA PostfixToNFA(const string &postfix) {
         } else if (c == '|') {
             NFA nfa2 = nfaStack.top(); nfaStack.pop();
             NFA nfa1 = nfaStack.top(); nfaStack.pop();
-            State* start = new State{stateId++};
-            State* accept = new State{stateId++};
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
             start->transitions.push_back({'\0', nfa1.start});
             start->transitions.push_back({'\0', nfa2.start});
             nfa1.accept->transitions.push_back({'\0', accept});
@@ -246,8 +247,8 @@ NFA PostfixToNFA(const string &postfix) {
             nfaStack.push({start, accept});
         } else if (c == '*') {
             NFA nfa = nfaStack.top(); nfaStack.pop();
-            State* start = new State{stateId++};
-            State* accept = new State{stateId++};
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
             start->transitions.push_back({'\0', nfa.start});
             start->transitions.push_back({'\0', accept});
             nfa.accept->transitions.push_back({'\0', nfa.start});
@@ -260,10 +261,36 @@ NFA PostfixToNFA(const string &postfix) {
 }
 
 // Function to retrieve NFA state by ID
-State* GetStateById(const NFA &nfa, int id) {
-    // Note: Implement your own logic to find the state by ID in your NFA structure.
+shared_ptr<State> GetStateById(const NFA &nfa, int id) {
+    // Implement logic to find the state by ID in the NFA
+    // This could involve traversing the NFA structure or maintaining a map of states
     return nullptr;
 }
+
+// Epsilon closure function
+set<int> EpsilonClosure(const NFA &nfa, const set<int> &states) {
+    set<int> closure = states;
+    queue<int> stateQueue;
+    for (int state : states) {
+        stateQueue.push(state);
+    }
+    while (!stateQueue.empty()) {
+        int currentState = stateQueue.front();
+        stateQueue.pop();
+        shared_ptr<State> nfaState = GetStateById(nfa, currentState);
+        for (const auto &transition : nfaState->transitions) {
+            if (transition.first == '\0') {
+                int targetState = transition.second->id;
+                if (closure.find(targetState) == closure.end()) {
+                    closure.insert(targetState);
+                    stateQueue.push(targetState);
+                }
+            }
+        }
+    }
+    return closure;
+}
+
 // Subset construction to convert NFA to DFA
 DFA NFAtoDFA(const NFA &nfa) {
     set<char> alphabet = {'a', 'b'}; // Define the alphabet here
@@ -273,7 +300,7 @@ DFA NFAtoDFA(const NFA &nfa) {
     map<set<int>, int> stateMapping; // Map NFA state sets to DFA state IDs
     map<int, set<int>> dfaStateSets; // Map DFA state IDs to NFA state sets
     queue<set<int>> stateQueue;
-    set<int> currentSet = startSet;
+    set<int> currentSet = EpsilonClosure(nfa, startSet);
     int stateId = 0;
 
     stateMapping[currentSet] = stateId++;
@@ -287,11 +314,13 @@ DFA NFAtoDFA(const NFA &nfa) {
         map<char, set<int>> transitions;
 
         for (int nfaStateId : currentSet) {
-            State* nfaState = GetStateById(nfa, nfaStateId);
+            shared_ptr<State> nfaState = GetStateById(nfa, nfaStateId);
             for (const auto &transition : nfaState->transitions) {
                 char symbol = transition.first;
-                State* targetState = transition.second;
-                transitions[symbol].insert(targetState->id);
+                if (symbol != '\0') {
+                    set<int> targetSet = EpsilonClosure(nfa, {transition.second->id});
+                    transitions[symbol].insert(targetSet.begin(), targetSet.end());
+                }
             }
         }
 
