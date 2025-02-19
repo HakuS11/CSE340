@@ -1,164 +1,321 @@
 #include <iostream>
-#include <vector>
 #include <set>
 #include <map>
 #include <queue>
 #include <stack>
-#include <unordered_set>
-#include <cctype>
-#include <stdexcept>
+#include <string>
+#include <vector>
+#include "DFA.h"
 using namespace std;
 
-//--------------------------------------------------------------
-// Token Types
-//--------------------------------------------------------------
+// Token types
 enum TokenType {
-    ID,
-    NUM,
-    OP,
-    KEYWORD,
-    EOS,     // end of string
-    INVALID
+    TOK_A, TOK_B, TOK_C, TOK_D, TOK_E, TOK_END, TOK_INVALID
 };
-const string tokenNames[] = { "ID", "NUM", "OP", "KEYWORD", "EOS", "INVALID" };
 
-//--------------------------------------------------------------
-// Token Structure
-//--------------------------------------------------------------
+// Token structure
 struct Token {
     TokenType type;
-    string value;
+    char value;
 };
 
-//--------------------------------------------------------------
-// RegexParser
-//--------------------------------------------------------------
-class RegexParser {
-public:
-    static string InfixToPostfix(const string& infix);
-private:
-    static int Precedence(char op);
-    static bool IsOperand(char c);
-    static string InsertConcatenation(const string& regex);
-};
-
-//--------------------------------------------------------------
-// Regex2NFA
-//--------------------------------------------------------------
-class RegexToNFA {
-public:
-    struct NFAFragment {
-        int startState;
-        set<int> acceptStates;
-        map<int, map<char, set<int>>> transitions;
-    };
-
-    RegexToNFA() : stateCounter(0) {}
-    NFAFragment regex2NFA(const string& postfixRegex);
-
-private:
-    int stateCounter;
-    int newState();
-    NFAFragment singleChar(char c);
-    NFAFragment epsilon();
-    void concatenate(stack<NFAFragment>& nfaStack);
-    void unionOp(stack<NFAFragment>& nfaStack);
-    void kleeneStar(stack<NFAFragment>& nfaStack);
-};
-
-//--------------------------------------------------------------
-// NFA2DFA
-//--------------------------------------------------------------
-class NFA2DFA {
-public:
-    struct DFA {
-        set<set<int>> states;
-        set<int> startState;
-        set<set<int>> acceptStates;
-        map<set<int>, map<char, set<int>>> transitions;
-    };
-
-    static DFA convert(const RegexToNFA::NFAFragment& nfa);
-};
-
-//--------------------------------------------------------------
-// Lexer
-//--------------------------------------------------------------
+// Lexer class to tokenize the input
 class Lexer {
 public:
-    Lexer(const string& input, const map<string, NFA2DFA::DFA>& dfas) : input(input), dfas(dfas), pos(0) {}
-    Token getToken();
-
+    Lexer(const string& input) : input(input), index(0) {}
+    Token getToken() {
+        while (index < input.length() && isspace(input[index]))
+            index++;
+        if (index >= input.length())
+            return {TOK_END, '\0'};
+        char currentChar = input[index++];
+        switch (currentChar) {
+            case 'a': return {TOK_A, 'a'};
+            case 'b': return {TOK_B, 'b'};
+            case 'c': return {TOK_C, 'c'};
+            case 'd': return {TOK_D, 'd'};
+            case 'e': return {TOK_E, 'e'};
+            default: return {TOK_INVALID, currentChar};
+        }
+    }
 private:
     string input;
-    map<string, NFA2DFA::DFA> dfas;
-    size_t pos;
+    int index;
 };
 
-//--------------------------------------------------------------
-// Lexer Implementation
-//--------------------------------------------------------------
-Token Lexer::getToken() {
-    // Skip whitespace
-    while (pos < input.size() && isspace(input[pos]))
-        pos++;
+// Recursive Descent Parser class
+class Parser {
+public:
+    Parser(Lexer& lexer) : lexer(lexer), currentToken(lexer.getToken()) {}
+    bool parseS();
+private:
+    void match(TokenType expectedType);
+    bool parseA();
+    Lexer& lexer;
+    Token currentToken;
+};
 
-    // Check for end of string
-    if (pos == input.size())
-        return Token{EOS, ""};
-
-    // Try to match tokens using DFAs
-    for (const auto& [tokenName, dfa] : dfas) {
-        set<int> currentStates = dfa.startState;
-        size_t startPos = pos;
-        while (pos < input.size()) {
-            char nextChar = input[pos];
-            set<int> nextStates;
-            for (int state : currentStates) {
-                if (dfa.transitions[state].count(nextChar)) {
-                    nextStates.insert(dfa.transitions[state][nextChar].begin(), dfa.transitions[state][nextChar].end());
-                }
-            }
-            if (nextStates.empty())
-                break;
-            currentStates = nextStates;
-            pos++;
-        }
-
-        // Check if the current states include an accept state
-        for (int state : currentStates) {
-            if (dfa.acceptStates.count(state)) {
-                string lexeme = input.substr(startPos, pos - startPos);
-                return Token{ID, lexeme}; // Replace ID with the appropriate token type
-            }
-        }
-
-        // Reset position if no match
-        pos = startPos;
+// match consumes a token if it matches the expected type
+void Parser::match(TokenType expectedType) {
+    if (currentToken.type == expectedType)
+        currentToken = lexer.getToken();
+    else {
+        cerr << "Syntax Error: Expected token of type " << expectedType << ", but got " << currentToken.type << endl;
+        exit(1);
     }
-
-    // No match found
-    return Token{INVALID, string(1, input[pos++])};
 }
 
-//--------------------------------------------------------------
-// Main Function
-//--------------------------------------------------------------
-int main() {
-    // Read input from stdin
-    string tokenDefs, inputStr;
+// S -> aAe
+bool Parser::parseS() {
+    if (currentToken.type == TOK_A) {
+        match(TOK_A); // consume 'a'
+        if (!parseA()) return false;
+        if (currentToken.type == TOK_E) {
+            match(TOK_E); // consume 'e'
+            return true;
+        }
+    }
+    return false;
+}
+
+// A -> bAd | c
+bool Parser::parseA() {
+    if (currentToken.type == TOK_B) {
+        match(TOK_B); // consume 'b'
+        if (!parseA()) return false;
+        if (currentToken.type == TOK_D) {
+            match(TOK_D); // consume 'd'
+            return true;
+        }
+        return false;
+    } else if (currentToken.type == TOK_C) {
+        match(TOK_C); // consume 'c'
+        return true;
+    }
+    return false;
+}
+
+// define precedence and associativity of operators
+int Precedence(char op) {
+    if (op == '*') return 3; // highest precedence for Kleene star (*)
+    if (op == '.') return 2; // concatenation (.) has lower precedence than *
+    if (op == '|') return 1; // alternation (|) has the lowest precedence
+    return 0;
+}
+
+// check if a character is an operand (alpha)
+bool IsOperand(char c) {
+    return isalpha(c);
+}
+
+// convert an infix regular expression to postfix
+string InfixToPostfix(const string &infix) {
+    stack<char> ops; // stack for operators
+    string postfix = ""; // resulting postfix expression 'queue'
+    for (size_t i = 0; i < infix.size(); i++) {
+        char c = infix[i];
+        if (IsOperand(c)) {
+            postfix += c; // if c is an operand, put it on the output queue
+        } else if (c == '(') {
+            ops.push(c); // if it's an opening parenthesis, push it onto the stack
+        } else if (c == ')') {
+            while (!ops.empty() && ops.top() != '(') {
+                postfix += ops.top();
+                ops.pop();
+            }
+            ops.pop(); // pop the '('
+        } else {
+            while (!ops.empty() && ops.top() != '(' && Precedence(ops.top()) >= Precedence(c)) {
+                postfix += ops.top();
+                ops.pop();
+            }
+            ops.push(c); // push the operator onto the stack
+        }
+    }
+    while (!ops.empty()) {
+        postfix += ops.top();
+        ops.pop();
+    }
+    return postfix;
+}
+
+// NFA State
+struct State {
+    int id;
+    vector<pair<char, State*>> transitions; // transitions are labeled with characters
+};
+
+// NFA Structure
+struct NFA {
+    State* start;
+    State* accept;
+};
+
+// Thompson's Construction: Create NFA from postfix regex
+NFA PostfixToNFA(const string &postfix) {
+    stack<NFA> nfaStack;
+    int stateId = 0;
+
+    for (char c : postfix) {
+        if (IsOperand(c)) {
+            State* start = new State{stateId++};
+            State* accept = new State{stateId++};
+            start->transitions.push_back({c, accept});
+            nfaStack.push({start, accept});
+        } else if (c == '.') {
+            NFA nfa2 = nfaStack.top(); nfaStack.pop();
+            NFA nfa1 = nfaStack.top(); nfaStack.pop();
+            nfa1.accept->transitions.push_back({'\0', nfa2.start});
+            nfaStack.push({nfa1.start, nfa2.accept});
+        } else if (c == '|') {
+            NFA nfa2 = nfaStack.top(); nfaStack.pop();
+            NFA nfa1 = nfaStack.top(); nfaStack.pop();
+            State* start = new State{stateId++};
+            State* accept = new State{stateId++};
+            start->transitions.push_back({'\0', nfa1.start});
+            start->transitions.push_back({'\0', nfa2.start});
+            nfa1.accept->transitions.push_back({'\0', accept});
+            nfa2.accept->transitions.push_back({'\0', accept});
+            nfaStack.push({start, accept});
+        } else if (c == '*') {
+            NFA nfa = nfaStack.top(); nfaStack.pop();
+            State* start = new State{stateId++};
+            State* accept = new State{stateId++};
+            start->transitions.push_back({'\0', nfa.start});
+            start->transitions.push_back({'\0', accept});
+            nfa.accept->transitions.push_back({'\0', nfa.start});
+            nfa.accept->transitions.push_back({'\0', accept});
+            nfaStack.push({start, accept});
+        }
+    }
+
+    return nfaStack.top();
+}
+
+// Function to retrieve NFA state by ID
+State* GetStateById(const NFA &nfa, int id) {
+    // Note: Implement your own logic to find the state by ID in your NFA structure.
+    return nullptr;
+}
+
+// Subset construction to convert NFA to DFA
+DFA NFAtoDFA(const NFA &nfa) {
+    set<char> alphabet = {'a', 'b'}; // Define the alphabet here
+    set<int> startSet = {nfa.start->id};
+    DFA dfa(alphabet, startSet, {}); // Initial DFA with defined alphabet and states
+
+    map<set<int>, int> stateMapping; // Map NFA state sets to DFA state IDs
+    map<int, set<int>> dfaStateSets; // Map DFA state IDs to NFA state sets
+    queue<set<int>> stateQueue;
+    set<int> currentSet = startSet;
+    int stateId = 0;
+
+    stateMapping[currentSet] = stateId++;
+    dfaStateSets[stateMapping[currentSet]] = currentSet;
+    stateQueue.push(currentSet);
+
+    while (!stateQueue.empty()) {
+        currentSet = stateQueue.front();
+        stateQueue.pop();
+
+        map<char, set<int>> transitions;
+
+        for (int nfaStateId : currentSet) {
+            State* nfaState = GetStateById(nfa, nfaStateId);
+            for (const auto &transition : nfaState->transitions) {
+                char symbol = transition.first;
+                State* targetState = transition.second;
+                transitions[symbol].insert(targetState->id);
+            }
+        }
+
+        for (const auto &trans : transitions) {
+            char symbol = trans.first;
+            set<int> targetSet = trans.second;
+
+            if (stateMapping.find(targetSet) == stateMapping.end()) {
+                stateMapping[targetSet] = stateId++;
+                dfaStateSets[stateMapping[targetSet]] = targetSet;
+                stateQueue.push(targetSet);
+            }
+
+            dfa.AddTransition(stateMapping[currentSet], stateMapping[targetSet], symbol);
+        }
+    }
+
+    // Define DFA final states
+    for (const auto &stateSetPair : stateMapping) {
+        const set<int> &stateSet = stateSetPair.first;
+        int dfaStateId = stateSetPair.second;
+        if (stateSet.find(nfa.accept->id) != stateSet.end()) {
+            dfa.AddFinalState(dfaStateId);
+        }
+    }
+
+ int main() {
+    string tokenDefs;
+    string inputString;
+
+    // Read token definitions and input string from stdin
     getline(cin, tokenDefs);
-    getline(cin, inputStr);
+    getline(cin, inputString);
 
-    // Parse token definitions and build DFAs
-    map<string, NFA2DFA::DFA> dfas;
-    // (Implementation of parsing token definitions and building DFAs goes here)
+    // Process token definitions
+    vector<pair<string, string>> tokens;
+    size_t pos = 0;
+    while ((pos = tokenDefs.find(",")) != string::npos) {
+        string token = tokenDefs.substr(0, pos);
+        size_t spacePos = token.find(" ");
+        string tokenName = token.substr(0, spacePos);
+        string tokenRegex = token.substr(spacePos + 1);
+        tokens.push_back({tokenName, tokenRegex});
+        tokenDefs.erase(0, pos + 1);
+    }
+    tokenDefs.pop_back(); // Remove the trailing #
+    size_t spacePos = tokenDefs.find(" ");
+    string tokenName = tokenDefs.substr(0, spacePos);
+    string tokenRegex = tokenDefs.substr(spacePos + 1);
+    tokens.push_back({tokenName, tokenRegex});
 
-    // Lexer
-    Lexer lexer(inputStr, dfas);
-    Token token;
-    while ((token = lexer.getToken()).type != EOS) {
-        cout << "Token: " << tokenNames[token.type] << ", Lexeme: \"" << token.value << "\"" << endl;
+    // Convert each regex to postfix and create NFA for each token
+    vector<NFA> nfas;
+    for (const auto& token : tokens) {
+        string postfix = InfixToPostfix(token.second);
+        NFA nfa = PostfixToNFA(postfix);
+        nfas.push_back(nfa);
+    }
+
+    // Perform lexical analysis on the input string using the DFAs
+    vector<pair<string, string>> results;
+    size_t index = 0;
+    while (index < inputString.length()) {
+        bool matched = false;
+        for (size_t i = 0; i < nfas.size(); ++i) {
+            DFA dfa = NFAtoDFA(nfas[i]);
+            dfa.Reset();
+
+            size_t j = index;
+            while (j < inputString.length() && !isspace(inputString[j])) {
+                dfa.Move(inputString[j]);
+                if (dfa.GetAccepted()) {
+                    results.push_back({tokens[i].first, inputString.substr(index, j - index + 1)});
+                    index = j + 1;
+                    matched = true;
+                    break;
+                }
+                ++j;
+            }
+            if (matched) break;
+        }
+        if (!matched) {
+            results.push_back({"ERROR", string(1, inputString[index])});
+            ++index;
+        }
+    }
+
+    // Output the results
+    for (const auto& result : results) {
+        cout << result.first << " , \"" << result.second << "\"" << endl;
     }
 
     return 0;
