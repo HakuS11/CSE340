@@ -96,6 +96,52 @@ private:
 };
 
 //--------------------------------------------------------------
+// Lexer Implementation
+//--------------------------------------------------------------
+Token Lexer::getToken() {
+    // Skip whitespace
+    while (pos < input.size() && isspace(input[pos]))
+        pos++;
+
+    // Check for end of string
+    if (pos == input.size())
+        return Token{EOS, ""};
+
+    // Try to match tokens using DFAs
+    for (const auto& [tokenName, dfa] : dfas) {
+        set<int> currentStates = dfa.startState;
+        size_t startPos = pos;
+        while (pos < input.size()) {
+            char nextChar = input[pos];
+            set<int> nextStates;
+            for (int state : currentStates) {
+                if (dfa.transitions[state].count(nextChar)) {
+                    nextStates.insert(dfa.transitions[state][nextChar].begin(), dfa.transitions[state][nextChar].end());
+                }
+            }
+            if (nextStates.empty())
+                break;
+            currentStates = nextStates;
+            pos++;
+        }
+
+        // Check if the current states include an accept state
+        for (int state : currentStates) {
+            if (dfa.acceptStates.count(state)) {
+                string lexeme = input.substr(startPos, pos - startPos);
+                return Token{ID, lexeme}; // Replace ID with the appropriate token type
+            }
+        }
+
+        // Reset position if no match
+        pos = startPos;
+    }
+
+    // No match found
+    return Token{INVALID, string(1, input[pos++])};
+}
+
+//--------------------------------------------------------------
 // Main Function
 //--------------------------------------------------------------
 int main() {
