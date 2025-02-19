@@ -5,7 +5,6 @@
 #include <stack>
 #include <string>
 #include <vector>
-#include "DFA.h"
 using namespace std;
 
 // Token types
@@ -17,6 +16,74 @@ enum TokenType {
 struct Token {
     TokenType type;
     char value;
+};
+
+// DFA class definition
+class DFA {
+public:
+    DFA(set<char> A, set<int> I, set<int> F) : alpha(A), init_states(I), fin_states(F) { Reset(); }
+
+    void Reset() {
+        status = START;
+        current_state = *init_states.begin();
+        accepted = false;
+        lexeme.clear();
+    }
+
+    void AddTransition(int from, int to, char symbol) {
+        Dtran[from][symbol] = to;
+    }
+
+    void AddFinalState(int state) {
+        fin_states.insert(state);
+    }
+
+    bool GetAccepted() {
+        return accepted;
+    }
+
+    string GetAcceptedLexeme() {
+        return accepted_lexeme;
+    }
+
+    void Move(char c) {
+        if (Dtran[current_state].find(c) != Dtran[current_state].end()) {
+            current_state = Dtran[current_state][c];
+            lexeme += c;
+            if (fin_states.count(current_state) > 0) {
+                status = ACCEPT;
+                accepted = true;
+                accepted_lexeme = lexeme;
+            } else {
+                status = POTENTIAL;
+            }
+        } else {
+            status = FAIL;
+        }
+    }
+
+    void Print() {
+        cout << "DFA Transitions:\n";
+        for (const auto& dfa_row : Dtran) {
+            cout << dfa_row.first << ":\t";
+            for (const auto& transition : dfa_row.second) {
+                cout << transition.first << ": " << transition.second << " ";
+            }
+            cout << endl;
+        }
+    }
+
+private:
+    enum Status { START, POTENTIAL, ACCEPT, FAIL };
+    set<char> alpha;
+    set<int> init_states;
+    set<int> fin_states;
+    map<int, map<char, int>> Dtran;
+    Status status;
+    int current_state;
+    bool accepted;
+    string lexeme;
+    string accepted_lexeme;
 };
 
 // Lexer class to tokenize the input
@@ -197,7 +264,6 @@ State* GetStateById(const NFA &nfa, int id) {
     // Note: Implement your own logic to find the state by ID in your NFA structure.
     return nullptr;
 }
-
 // Subset construction to convert NFA to DFA
 DFA NFAtoDFA(const NFA &nfa) {
     set<char> alphabet = {'a', 'b'}; // Define the alphabet here
@@ -252,7 +318,10 @@ DFA NFAtoDFA(const NFA &nfa) {
         }
     }
 
- int main() {
+    return dfa;
+}
+
+int main() {
     string tokenDefs;
     string inputString;
 
