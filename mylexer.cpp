@@ -1,24 +1,26 @@
 #include <iostream>
+#include <sstream>
+#include <vector>
+#include <stack>
+#include <memory>
+#include <string>
+#include <cctype>
+#include <queue>
 #include <set>
 #include <map>
-#include <queue>
-#include <stack>
-#include <string>
-#include <vector>
-#include <memory>
-#include <algorithm>
-#include <cctype>
 using namespace std;
 
-// Function to trim leading and trailing whitespace from a string
-string Trim(const string& str) {
-    size_t first = str.find_first_not_of(" \t\n\r");
-    if (first == string::npos) {
-        return ""; // String is all whitespace
-    }
-    size_t last = str.find_last_not_of(" \t\n\r");
-    return str.substr(first, last - first + 1);
-}
+// NFA State
+struct State {
+    int id;
+    vector<pair<char, shared_ptr<State>>> transitions; // transitions are labeled with characters
+};
+
+// NFA Structure
+struct NFA {
+    shared_ptr<State> start;
+    shared_ptr<State> accept;
+};
 
 // DFA class definition
 class DFA {
@@ -39,11 +41,11 @@ public:
         fin_states.insert(state);
     }
 
-    bool GetAccepted() {
+    bool GetAccepted() const {
         return accepted;
     }
 
-    string GetAcceptedLexeme() {
+    string GetAcceptedLexeme() const {
         return accepted_lexeme;
     }
 
@@ -51,6 +53,7 @@ public:
         if (Dtran[current_state].find(c) != Dtran[current_state].end()) {
             current_state = Dtran[current_state][c];
             accepted_lexeme += c;
+            cout << "Moved to state " << current_state << " on symbol " << c << endl;
             if (fin_states.count(current_state)) {
                 accepted = true;
             }
@@ -59,6 +62,14 @@ public:
             accepted = false;
             return false; // Transition failed
         }
+    }
+
+    map<int, map<char, int>> GetTransitions() const {
+        return Dtran;
+    }
+
+    int GetCurrentState() const {
+        return current_state;
     }
 
 private:
@@ -71,17 +82,99 @@ private:
     string accepted_lexeme;
 };
 
-// NFA State
-struct State {
-    int id;
-    vector<pair<char, shared_ptr<State>>> transitions; // transitions are labeled with characters
-};
+// Check if a character is an operand (alpha or digit)
+bool IsOperand(char c) {
+    return isalpha(c) || isdigit(c);
+}
 
-// NFA Structure
-struct NFA {
-    shared_ptr<State> start;
-    shared_ptr<State> accept;
-};
+// Function to convert infix regular expression to postfix
+int Precedence(char op) {
+    if (op == '*') return 3; // highest precedence for Kleene star (*)
+    if (op == '.') return 2; // concatenation (.) has lower precedence than *
+    if (op == '|') return 1; // alternation (|) has the lowest precedence
+    return 0;
+}
+
+string InfixToPostfix(const string &infix) {
+    stack<char> ops; // stack for operators
+    string postfix = ""; // resulting postfix expression 'queue'
+    for (size_t i = 0; i < infix.size(); i++) {
+        char c = infix[i];
+        if (IsOperand(c)) {
+            postfix += c;
+        } else if (c == '(') {
+            ops.push(c);
+        } else if (c == ')') {
+            while (!ops.empty() && ops.top() != '(') {
+                postfix += ops.top();
+                ops.pop();
+            }
+            ops.pop(); // pop the '('
+        } else {
+            while (!ops.empty() && ops.top() != '(' && Precedence(ops.top()) >= Precedence(c)) {
+                postfix += ops.top();
+                ops.pop();
+            }
+            ops.push(c);
+        }
+    }
+    while (!ops.empty()) {
+        postfix += ops.top();
+        ops.pop();
+    }
+    return postfix;
+}
+
+// Thompson's Construction: Create NFA from postfix regex
+NFA PostfixToNFA(const string &postfix) {
+    stack<NFA> nfaStack;
+    int stateId = 0;
+
+    for (char c : postfix) {
+        if (IsOperand(c)) {
+            // Create NFA for individual character
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
+            start->transitions.push_back({c, accept});
+            nfaStack.push({start, accept});
+            cout << "Created NFA for operand " << c << " with start state " << start->id << " and accept state " << accept->id << endl;
+        } else if (c == '.') {
+            // Concatenation: pop two NFAs and combine
+            NFA nfa2 = nfaStack.top(); nfaStack.pop();
+            NFA nfa1 = nfaStack.top(); nfaStack.pop();
+            nfa1.accept->transitions.push_back({'\0', nfa2.start});
+            nfaStack.push({nfa1.start, nfa2.accept});
+            cout << "Concatenated NFAs with new start state " << nfa1.start->id << " and new accept state " << nfa2.accept->id << endl;
+        } else if (c == '|') {
+            // Alternation: pop two NFAs and combine
+            NFA nfa2 = nfaStack.top(); nfaStack.pop();
+            NFA nfa1 = nfaStack.top(); nfaStack.pop();
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
+            start->transitions.push_back({'\0', nfa1.start});
+            start->transitions.push_back({'\0', nfa2.start});
+            nfa1.accept->transitions.push_back({'\0', accept});
+            nfa2.accept->transitions.push_back({'\0', accept});
+            nfaStack.push({start, accept});
+            cout << "Created alternation NFA with new start state " << start->id << " and new accept state " << accept->id << endl;
+        } else if (c == '*') {
+            // Kleene Star: pop one NFA and apply star
+            NFA nfa = nfaStack.top(); nfaStack.pop();
+            auto start = make_shared<State>(State{stateId++});
+            auto accept = make_shared<State>(State{stateId++});
+            start->transitions.push_back({'\0', nfa.start});
+            start->transitions.push_back({'\0', accept});
+            nfa.accept->transitions.push_back({'\0', nfa.start});
+            nfa.accept->transitions.push_back({'\0', accept});
+            nfaStack.push({start, accept});
+            cout << "Applied Kleene star to NFA with new start state " << start->id << " and new accept state " << accept->id << endl;
+        }
+    }
+
+    NFA result = nfaStack.top();
+    cout << "Final NFA start state: " << result.start->id << ", accept state: " << result.accept->id << endl;
+    return result;
+}
 
 // Function to retrieve NFA state by ID
 shared_ptr<State> GetStateById(const NFA &nfa, int id) {
@@ -103,13 +196,13 @@ shared_ptr<State> GetStateById(const NFA &nfa, int id) {
 // Epsilon closure function
 set<int> EpsilonClosure(const NFA &nfa, const set<int> &states) {
     set<int> closure = states;
-    queue<int> stateQueue;
+    stack<int> stateStack;
     for (int state : states) {
-        stateQueue.push(state);
+        stateStack.push(state);
     }
-    while (!stateQueue.empty()) {
-        int currentState = stateQueue.front();
-        stateQueue.pop();
+    while (!stateStack.empty()) {
+        int currentState = stateStack.top();
+        stateStack.pop();
         shared_ptr<State> nfaState = GetStateById(nfa, currentState);
         if (nfaState == nullptr) {
             continue;
@@ -119,7 +212,7 @@ set<int> EpsilonClosure(const NFA &nfa, const set<int> &states) {
                 int targetState = transition.second->id;
                 if (closure.find(targetState) == closure.end()) {
                     closure.insert(targetState);
-                    stateQueue.push(targetState);
+                    stateStack.push(targetState);
                 }
             }
         }
@@ -129,7 +222,17 @@ set<int> EpsilonClosure(const NFA &nfa, const set<int> &states) {
 
 // Subset construction to convert NFA to DFA
 DFA NFAtoDFA(const NFA &nfa) {
-    set<char> alphabet = {'a', 'b', 'c', 'd', 'e'}; // Define the alphabet dynamically
+    set<char> alphabet; // Define the alphabet dynamically
+    for (char c = 'a'; c <= 'z'; c++) {
+        alphabet.insert(c);
+    }
+    for (char c = 'A'; c <= 'Z'; c++) {
+        alphabet.insert(c);
+    }
+    for (char c = '0'; c <= '9'; c++) {
+        alphabet.insert(c);
+    }
+
     set<int> startSet = {nfa.start->id};
     DFA dfa(alphabet, startSet, {}); // Initial DFA with defined alphabet and states
 
@@ -171,6 +274,7 @@ DFA NFAtoDFA(const NFA &nfa) {
             }
 
             dfa.AddTransition(stateMapping[currentSet], stateMapping[targetSet], symbol);
+            cout << "DFA transition from state " << stateMapping[currentSet] << " to state " << stateMapping[targetSet] << " on symbol " << symbol << endl;
         }
     }
 
@@ -180,133 +284,85 @@ DFA NFAtoDFA(const NFA &nfa) {
         int dfaStateId = stateSetPair.second;
         if (stateSet.find(nfa.accept->id) != stateSet.end()) {
             dfa.AddFinalState(dfaStateId);
+            cout << "DFA final state: " << dfaStateId << " for NFA accept state: " << nfa.accept->id << endl;
         }
     }
 
     return dfa;
 }
 
-// Check if a character is an operand (alpha)
-bool IsOperand(char c) {
-    return isalpha(c);
-}
-
-// Define precedence and associativity of operators
-int Precedence(char op) {
-    if (op == '*') return 3; // highest precedence for Kleene star (*)
-    if (op == '.') return 2; // concatenation (.) has lower precedence than *
-    if (op == '|') return 1; // alternation (|) has the lowest precedence
-    return 0;
-}
-
-// Convert an infix regular expression to postfix
-string InfixToPostfix(const string &infix) {
-    stack<char> ops;
-    string postfix;
-    for (char c : infix) {
-        if (isalnum(c)) {
-            postfix += c;
-        } else if (c == '(') {
-            ops.push(c);
-        } else if (c == ')') {
-            while (!ops.empty() && ops.top() != '(') {
-                postfix += ops.top();
-                ops.pop();
-            }
-            ops.pop();
-        } else {
-            while (!ops.empty() && Precedence(ops.top()) >= Precedence(c)) {
-                postfix += ops.top();
-                ops.pop();
-            }
-            ops.push(c);
-        }
+// Function to trim leading and trailing whitespace from a string
+string Trim(const string& str) {
+    size_t first = str.find_first_not_of(" \t\n\r");
+    if (first == string::npos) {
+        return ""; // String is all whitespace
     }
-    while (!ops.empty()) {
-        postfix += ops.top();
-        ops.pop();
-    }
-    return postfix;
+    size_t last = str.find_last_not_of(" \t\n\r");
+    return str.substr(first, last - first + 1);
 }
 
-// Thompson's Construction: Create NFA from postfix regex
-NFA PostfixToNFA(const string &postfix) {
-    stack<NFA> nfaStack;
-    int stateId = 0;
-
-    for (char c : postfix) {
-        if (IsOperand(c)) {
-            auto start = make_shared<State>(State{stateId++});
-            auto accept = make_shared<State>(State{stateId++});
-            start->transitions.push_back({c, accept});
-            nfaStack.push({start, accept});
-        } else if (c == '.') {
-            NFA nfa2 = nfaStack.top(); nfaStack.pop();
-            NFA nfa1 = nfaStack.top(); nfaStack.pop();
-            nfa1.accept->transitions.push_back({'\0', nfa2.start});
-            nfaStack.push({nfa1.start, nfa2.accept});
-        } else if (c == '|') {
-            NFA nfa2 = nfaStack.top(); nfaStack.pop();
-            NFA nfa1 = nfaStack.top(); nfaStack.pop();
-            auto start = make_shared<State>(State{stateId++});
-            auto accept = make_shared<State>(State{stateId++});
-            start->transitions.push_back({'\0', nfa1.start});
-            start->transitions.push_back({'\0', nfa2.start});
-            nfa1.accept->transitions.push_back({'\0', accept});
-            nfa2.accept->transitions.push_back({'\0', accept});
-            nfaStack.push({start, accept});
-        } else if (c == '*') {
-            NFA nfa = nfaStack.top(); nfaStack.pop();
-            auto start = make_shared<State>(State{stateId++});
-            auto accept = make_shared<State>(State{stateId++});
-            start->transitions.push_back({'\0', nfa.start});
-            start->transitions.push_back({'\0', accept});
-            nfa.accept->transitions.push_back({'\0', nfa.start});
-            nfa.accept->transitions.push_back({'\0', accept});
-            nfaStack.push({start, accept});
-        }
+// Function to split a string by a delimiter and trim each part
+vector<string> SplitAndTrim(const string& str, char delimiter) {
+    vector<string> result;
+    stringstream ss(str);
+    string item;
+    while (getline(ss, item, delimiter)) {
+        result.push_back(Trim(item));
     }
-
-    return nfaStack.top();
+    return result;
 }
 
+// Main lexer function
 int main() {
-    // Read input
-    string tokenDefs, inputString;
-    getline(cin, tokenDefs);
-    getline(cin, inputString);
-
-    // Trim input string
-    inputString = Trim(inputString);
+    // Read input from stdin
+    string line;
+    getline(cin, line);
 
     // Parse token definitions
     vector<pair<string, string>> tokens;
-    size_t hashPos = tokenDefs.find('#');
-    if (hashPos != string::npos) {
-        tokenDefs = tokenDefs.substr(0, hashPos);
-    }
-    size_t pos = 0;
-    while ((pos = tokenDefs.find(",")) != string::npos) {
-        string tokenDef = tokenDefs.substr(0, pos);
-        size_t spacePos = tokenDef.find(" ");
+    vector<string> tokenDefs = SplitAndTrim(line, ',');
+    for (const string& tokenDef : tokenDefs) {
+        size_t spacePos = tokenDef.find(' ');
         if (spacePos != string::npos) {
             string tokenName = tokenDef.substr(0, spacePos);
             string tokenRegex = tokenDef.substr(spacePos + 1);
             tokens.push_back({tokenName, tokenRegex});
         }
-        tokenDefs.erase(0, pos + 1);
+    }
+    
+    // Remove the trailing '#' from the last token's regular expression
+    if (!tokens.empty()) {
+        string& lastTokenRegex = tokens.back().second;
+        if (!lastTokenRegex.empty() && lastTokenRegex.back() == '#') {
+            lastTokenRegex.pop_back();
+        }
     }
 
-    // Process each token definition
+    // Debug: Print parsed token definitions
+    cout << "Parsed Token Definitions:" << endl;
+    for (const auto &token : tokens) {
+        cout << "Token Name: " << token.first << ", Regex: " << token.second << endl;
+    }
+
+    // Read input string
+    getline(cin, line);
+    string inputString = Trim(line);
+    inputString = inputString.substr(1, inputString.size() - 2); // Remove surrounding quotes
+
+    // Convert token definitions to NFAs and then DFAs
     vector<DFA> dfas;
     for (const auto &token : tokens) {
         string postfix = InfixToPostfix(token.second);
+        // Debug: Print postfix expression
+        cout << "Infix: " << token.second << " -> Postfix: " << postfix << endl;
+
         NFA nfa = PostfixToNFA(postfix);
         DFA dfa = NFAtoDFA(nfa);
         dfas.push_back(dfa);
     }
 
     // Perform lexical analysis
+    cout << "Lexical Analysis Output:" << endl;
     size_t index = 0;
     while (index < inputString.length()) {
         while (index < inputString.length() && isspace(inputString[index])) {
@@ -315,22 +371,32 @@ int main() {
         if (index >= inputString.length()) break;
 
         bool matched = false;
+        size_t longestMatchLength = 0;
+        size_t longestMatchIndex = 0;
+        string longestMatchToken;
+
         for (size_t i = 0; i < dfas.size(); i++) {
             DFA dfa = dfas[i];
             dfa.Reset();
             size_t j = index;
+            cout << "Testing DFA for token: " << tokens[i].first << endl;
             while (j < inputString.length() && dfa.Move(inputString[j])) {
+                cout << "Moved to state " << dfa.GetCurrentState() << " on symbol " << inputString[j] << endl;
                 j++;
             }
-            if (dfa.GetAccepted()) {
-                string lexeme = inputString.substr(index, j - index);
-                cout << tokens[i].first << " , \"" << lexeme << "\"" << endl;
-                index = j;
+            if (dfa.GetAccepted() && j - index > longestMatchLength) {
+                longestMatchLength = j - index;
+                longestMatchIndex = i;
+                longestMatchToken = dfa.GetAcceptedLexeme();
                 matched = true;
-                break;
+                cout << "Accepted token: " << tokens[i].first << " with lexeme: " << longestMatchToken << endl;
             }
         }
-        if (!matched) {
+
+        if (matched) {
+            cout << tokens[longestMatchIndex].first << " , \"" << longestMatchToken << "\"" << endl;
+            index += longestMatchLength;
+        } else {
             cout << "ERROR , \"" << inputString[index] << "\"" << endl;
             index++;
         }
