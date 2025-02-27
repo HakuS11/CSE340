@@ -20,6 +20,7 @@ void match(char expected) {
     if (input[pos] == expected) {
         pos++;
     } else {
+        cout << "Does not recognize char\n";
         exit(1);
     }
 }
@@ -86,12 +87,15 @@ void F() {
             pos++;
         }
     } else {
+        cout << "Does not recognize char\n";
         exit(1);
     }
 }
 
 int main() {
-    input = "(7+2)*3"; //Example 1 token
+    //input = "(3+5)*7"; //Valid token 1
+    //input = "7+2"; //Valid token 2
+    input = "2++1"; //Invalid token 1
     pos = 0;
 
     S(); //Start parsing at S
